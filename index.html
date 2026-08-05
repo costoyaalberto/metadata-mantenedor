@@ -325,6 +325,7 @@ function abrirFicha(reviewGroupId) {
       <button onclick="posponerFicha()" class="text-sm font-semibold py-2.5 rounded-lg bg-paper border border-line text-ink">Posponer</button>
     </div>
     <button onclick="cerrarComoNoRequiere()" class="w-full text-sm text-inkmuted underline mt-2">No requiere acción</button>
+    <button onclick="descartarProducto()" class="w-full text-sm text-clay underline mt-1.5">Descartar producto (no es un café válido)</button>
 
     <p id="fichaStatus" class="text-sm text-center mt-2"></p>
   `;
@@ -340,7 +341,7 @@ function cerrarFicha() {
 function escHtml(s) { return String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function escAttr(s) { return String(s).replace(/"/g, '&quot;'); }
 
-async function guardarFicha(estadoFinal) {
+async function guardarFicha(estadoFinal, excluir) {
   const r = fichaActual;
   const statusEl = document.getElementById('fichaStatus');
 
@@ -383,7 +384,7 @@ async function guardarFicha(estadoFinal) {
       sensoryIdsPorVariante: sensoryIdsPorVariante, pesosPorVariante: pesosPorVariante,
       tienda: r.tienda, cafeDetectado: r.cafeDetectado, url: r.url,
       correcciones: correcciones, noDisponibles: noDisponibles,
-      motivoCorreccion: val('fv-motivo'), estadoFinal: estadoFinal
+      motivoCorreccion: val('fv-motivo'), estadoFinal: estadoFinal, excluir: !!excluir
     };
     const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
     const data = await res.json();
@@ -426,6 +427,14 @@ async function posponerFicha() {
 
 function cerrarComoNoRequiere() {
   guardarFicha('NO_REQUIERE_ACCION');
+}
+
+function descartarProducto() {
+  if (!val('fv-motivo')) {
+    alert('Escribí un motivo breve en "Motivo / fuente" antes de descartar.');
+    return;
+  }
+  guardarFicha('EXCLUIDO', true);
 }
 
 function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
