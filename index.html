@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Centro de Certificación de Metadata</title>
+<meta name="theme-color" content="#1B1611">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          paper: '#1B1611', surface: '#241E17', ink: '#F2EAD9', inkmuted: '#A99C87',
+          line: '#362D22', espresso: '#C9A46B', moss: '#8FBB78', mossbg: '#263420',
+          ochre: '#E0B15C', ochrebg: '#3A2E18', clay: '#E38E71', claybg: '#3B2419',
+          declinado: '#8A7C67'
+        },
+        fontFamily: {
+          display: ['Fraunces', 'serif'], sans: ['"IBM Plex Sans"', 'sans-serif'], mono: ['"IBM Plex Mono"', 'monospace']
+        }
+      }
+    }
+  }
+</script>
+<style>
+  body { -webkit-tap-highlight-color: transparent; }
+  ::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body class="bg-paper text-ink font-sans min-h-screen">
+
+  <!-- ====== CONFIGURACIÓN: pegar acá la URL /exec del deploy de ESTE mantenedor ====== -->
+  <script>
+    const API_URL = 'https://script.google.com/macros/s/AKfycbyE7W2Z5YPdsO7x2BxFgQJBjn8JZyfB_L8kryA1Z_4KOmqvrVHOwjYJvueWoX1pIy6T/exec';
+    const TOKEN = 'Metadataupdate'; // el mismo que pegaste en Code.gs
+  </script>
+
+  <div class="max-w-2xl mx-auto px-3 pt-4 pb-24">
+
+    <div class="flex items-baseline justify-between mb-3 px-0.5">
+      <h1 class="font-display font-semibold text-lg tracking-tight">Centro de Certificación</h1>
+      <span class="font-mono text-sm text-inkmuted tracking-widest uppercase">Metadata</span>
+    </div>
+
+    <div id="resumenBanner" class="rounded-lg px-3 py-2 mb-3 flex items-center gap-3 text-sm font-mono border border-line bg-surface text-inkmuted flex-wrap">
+      <span>Cargando…</span>
+    </div>
+
+    <div class="bg-surface border border-line rounded-xl p-3 mb-3">
+      <input id="buscador" type="text" placeholder="Buscar por café o tienda…" class="w-full text-base border border-line rounded-md px-3 py-2 bg-paper text-ink mb-2">
+      <div class="grid grid-cols-2 gap-2">
+        <select id="filtroTienda" class="text-sm border border-line rounded-md px-2 py-2 bg-paper text-ink"><option value="">Todas las tiendas</option></select>
+        <select id="filtroCampo" class="text-sm border border-line rounded-md px-2 py-2 bg-paper text-ink"><option value="">Todos los campos faltantes</option></select>
+      </div>
+    </div>
+
+    <button id="btnSiguiente" onclick="irAlSiguiente()" class="w-full text-sm font-semibold py-2.5 rounded-lg bg-espresso text-paper mb-4">Siguiente café →</button>
+
+    <div id="loadingState" class="text-center text-base text-inkmuted py-10 font-mono">Cargando cola de trabajo…</div>
+    <div id="errorState" class="hidden text-center text-base text-clay py-10 px-4"></div>
+
+    <div id="secciones"></div>
+
+  </div>
+
+<!-- ====== FICHA (modal simple) ====== -->
+<div id="fichaOverlay" class="hidden fixed inset-0 bg-black/70 z-40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="bg-surface border border-line rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto p-4">
+    <div id="fichaContenido"></div>
+  </div>
+</div>
+
+<script>
+
+let todosPendientes = [];
+let filtrados = [];
+let fichaActual = null; // review actualmente abierto en la ficha
+
+async function cargar() {
+  const loading = document.getElementById('loadingState');
+  const errorEl = document.getElementById('errorState');
+  try {
+    const res = await fetch(API_URL + '?action=metadataPendiente');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    loading.classList.add('hidden');
+    todosPendientes = data.items;
+    initFiltros();
+    aplicarFiltros();
+  } catch (err) {
+    loading.classList.add('hidden');
+    errorEl.classList.remove('hidden');
+    errorEl.innerText = 'No se pudo cargar la cola. Revisá tu conexión o volvé a intentar. (' + err.message + ')';
+  }
+}
+
+function initFiltros() {
+  const tiendas = [...new Set(todosPendientes.map(r => r.tienda).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const selTienda = document.getElementById('filtroTienda');
+  tiendas.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; selTienda.appendChild(o); });
+
+  const campos = new Set();
+  todosPendientes.forEach(r => String(r.camposFaltantes || '').split(',').map(s => s.trim()).filter(Boolean).forEach(c => campos.add(c)));
+  const selCampo = document.getElementById('filtroCampo');
+  [...campos].sort((a, b) => a.localeCompare(b, 'es')).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; selCampo.appendChild(o); });
+
+  document.getElementById('buscador').addEventListener('input', aplicarFiltros);
+  selTienda.addEventListener('change', aplicarFiltros);
+  selCampo.addEventListener('change', aplicarFiltros);
+}
+
+function aplicarFiltros() {
+  const q = document.getElementById('buscador').value.toLowerCase();
+  const tienda = document.getElementById('filtroTienda').value;
+  const campo = document.getElementById('filtroCampo').value;
+
+  filtrados = todosPendientes.filter(r => {
+    if (q && !((r.cafeDetectado || '').toLowerCase().includes(q) || (r.tienda || '').toLowerCase().includes(q))) return false;
+    if (tienda && r.tienda !== tienda) return false;
+    if (campo && !String(r.camposFaltantes || '').includes(campo)) return false;
+    return true;
+  });
+
+  renderResumen();
+  renderSecciones();
+}
+
+function renderResumen() {
+  const grupos = { PRINCIPAL: 0, RECONCILIACION: 0, MEJORA: 0, SIN_CLASIFICAR: 0 };
+  filtrados.forEach(r => {
+    const g = r.grupoBandeja === 'RECONCILIACIÓN' ? 'RECONCILIACION' : r.grupoBandeja;
+    if (grupos[g] !== undefined) grupos[g]++;
+  });
+  document.getElementById('resumenBanner').innerHTML = `
+    <span>${filtrados.length} pendientes</span>
+    <span class="text-clay">Principal ${grupos.PRINCIPAL}</span>
+    <span class="text-ochre">Reconciliación ${grupos.RECONCILIACION}</span>
+    <span class="text-moss">Mejora ${grupos.MEJORA}</span>
+    <span class="text-inkmuted">Sin clasificar ${grupos.SIN_CLASIFICAR}</span>`;
+}
+
+const SECCION_LABEL = { PRINCIPAL: 'Principal', RECONCILIACION: 'Reconciliación', MEJORA: 'Mejora', SIN_CLASIFICAR: 'Sin clasificar' };
+const SECCION_COLOR = { PRINCIPAL: 'text-clay', RECONCILIACION: 'text-ochre', MEJORA: 'text-moss', SIN_CLASIFICAR: 'text-inkmuted' };
+
+function renderSecciones() {
+  const ordenados = filtrados.slice().sort((a, b) => a.prioridadGrupo - b.prioridadGrupo);
+  const porGrupo = {};
+  ordenados.forEach(r => {
+    const g = r.grupoBandeja === 'RECONCILIACIÓN' ? 'RECONCILIACION' : r.grupoBandeja;
+    (porGrupo[g] = porGrupo[g] || []).push(r);
+  });
+
+  const cont = document.getElementById('secciones');
+  cont.innerHTML = Object.keys(SECCION_LABEL).map(g => {
+    const items = porGrupo[g] || [];
+    if (items.length === 0) return '';
+    return `
+      <div class="mb-4">
+        <p class="font-mono text-sm uppercase tracking-wide mb-2 ${SECCION_COLOR[g]}">${SECCION_LABEL[g]} (${items.length})</p>
+        <div class="flex flex-col gap-2">
+          ${items.map(r => filaHtml(r)).join('')}
+        </div>
+      </div>`;
+  }).join('') || '<p class="text-center text-base text-inkmuted py-10 font-mono">Sin pendientes con estos filtros.</p>';
+}
+
+function filaHtml(r) {
+  return `
+    <button onclick="abrirFicha('${r.reviewGroupId}')" class="text-left bg-surface border border-line rounded-xl p-3 hover:border-espresso">
+      <p class="font-display font-semibold text-lg text-ink">${r.cafeDetectado || 'Sin nombre'}</p>
+      <p class="text-sm text-inkmuted mt-0.5">${r.tienda || ''} ${r.pesosPresentaciones ? '· ' + r.pesosPresentaciones : ''}</p>
+      ${r.camposFaltantes ? `<p class="text-sm text-declinado mt-1">Faltan: ${r.camposFaltantes}</p>` : ''}
+    </button>`;
+}
+
+function irAlSiguiente() {
+  const ordenados = filtrados.slice().sort((a, b) => a.prioridadGrupo - b.prioridadGrupo);
+  if (ordenados.length === 0) { alert('No hay más pendientes con estos filtros.'); return; }
+  abrirFicha(ordenados[0].reviewGroupId);
+}
+
+// ============================================================
+// FICHA
+// ============================================================
+
+function abrirFicha(reviewGroupId) {
+  const r = todosPendientes.find(x => x.reviewGroupId === reviewGroupId);
+  if (!r) return;
+  fichaActual = r;
+
+  const variantes = r.variantIdsIncluidos || [];
+  const sensoryIds = r.sensoryIdsIncluidos || [];
+  const pesos = String(r.pesosPresentaciones || '').split(',').map(s => s.trim()).filter(Boolean);
+  const necesitaSeleccion = variantes.length > 1;
+  // Premarcado automático solo si TODAS las variantes comparten el mismo
+  // Sensory_ID — si hay identidades sensoriales distintas, no se asume nada.
+  const sensoryUnicos = new Set(sensoryIds.filter(Boolean));
+  const premarcarTodo = sensoryUnicos.size <= 1;
+
+  document.getElementById('fichaContenido').innerHTML = `
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <p class="font-display font-semibold text-xl text-ink">${r.cafeDetectado || 'Sin nombre'}</p>
+        <p class="text-sm text-inkmuted mt-0.5">${r.tienda || ''}</p>
+      </div>
+      <button onclick="cerrarFicha()" class="w-8 h-8 flex items-center justify-center rounded-lg bg-paper border border-line text-ink">✕</button>
+    </div>
+
+    ${r.url
+      ? `<a href="${r.url}" target="_blank" rel="noopener" class="inline-block text-sm text-espresso underline mb-3">↗ Abrir página del producto</a>`
+      : `<p class="text-sm text-declinado mb-3">URL no disponible</p>`}
+
+    <div class="flex items-center gap-2 flex-wrap mb-3">
+      <span class="text-sm px-2 py-1 rounded bg-paper border border-line text-inkmuted">${r.grupoBandeja === 'RECONCILIACIÓN' ? 'RECONCILIACION' : r.grupoBandeja}</span>
+      ${r.pesosPresentaciones ? `<span class="text-sm px-2 py-1 rounded bg-paper border border-line text-inkmuted">${r.pesosPresentaciones}</span>` : ''}
+    </div>
+
+    ${r.camposFaltantes ? `<p class="text-sm text-declinado mb-1">Faltan: ${r.camposFaltantes}</p>` : ''}
+    ${r.camposEnConflicto ? `<p class="text-sm text-clay mb-1">En conflicto: ${r.camposEnConflicto}</p>` : ''}
+    ${r.observaciones ? `<p class="text-sm text-inkmuted mb-3">${r.observaciones}</p>` : ''}
+
+    <details class="mb-3">
+      <summary class="text-sm text-inkmuted cursor-pointer">Sección técnica (no editable)</summary>
+      <div class="text-sm text-inkmuted font-mono mt-2 space-y-1">
+        <p>Review_Group_ID: ${r.reviewGroupId}</p>
+        <p>Variant_ID incluidos: ${variantes.join(', ') || '—'}</p>
+        <p>Sensory_ID incluidos: ${(r.sensoryIdsIncluidos || []).join(', ') || '—'}</p>
+      </div>
+    </details>
+
+    ${necesitaSeleccion ? `
+      <div class="mb-3 p-2.5 bg-paper border border-line rounded-lg">
+        <p class="text-sm font-medium text-ink mb-1.5">¿A qué presentaciones aplica esta corrección?</p>
+        ${!premarcarTodo ? `<p class="text-sm text-clay mb-1.5">Estas variantes tienen identidad sensorial distinta — revisá cada una antes de marcarla.</p>` : ''}
+        ${variantes.map((v, i) => `
+          <label class="flex items-center gap-2 text-sm text-ink py-0.5">
+            <input type="checkbox" class="fv-variant rounded accent-espresso" value="${v}" data-sensory="${sensoryIds[i] || ''}" data-peso="${pesos[i] || ''}" ${premarcarTodo ? 'checked' : ''}>
+            ${v}${pesos[i] ? ` <span class="text-inkmuted">(${pesos[i]})</span>` : ''}
+          </label>`).join('')}
+      </div>` : ''}
+
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-sm text-inkmuted">Café corregido</label>
+        <input id="fv-cafe" type="text" value="${escAttr(r.cafeCorregido || r.cafeDetectado || '')}" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">
+      </div>
+      <div>
+        <label class="text-sm text-inkmuted">Origen</label>
+        <input id="fv-origen" type="text" value="${escAttr(r.origen || '')}" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">
+      </div>
+      <div>
+        <label class="text-sm text-inkmuted">Proceso</label>
+        <input id="fv-proceso" type="text" value="${escAttr(r.proceso || '')}" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">
+      </div>
+      <div>
+        <label class="text-sm text-inkmuted">Variedad</label>
+        <input id="fv-variedad" type="text" value="${escAttr(r.variedad || '')}" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">
+      </div>
+      <div>
+        <label class="text-sm text-inkmuted">Altura (msnm)</label>
+        <input id="fv-altura" type="number" value="${escAttr(r.altura || '')}" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">
+      </div>
+    </div>
+    <div class="mb-2">
+      <label class="text-sm text-inkmuted">Notas sensoriales</label>
+      <textarea id="fv-notas" rows="2" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5">${escHtml(r.notas || '')}</textarea>
+    </div>
+
+    <div class="mb-2">
+      <p class="text-sm text-inkmuted mb-1">Marcar campo como "dato no disponible"</p>
+      <div class="flex flex-wrap gap-2">
+        ${['origen', 'proceso', 'variedad', 'altura', 'notas'].map(c => `
+          <label class="flex items-center gap-1.5 text-sm text-ink">
+            <input type="checkbox" class="fv-nodisp rounded accent-espresso" value="${c}"> ${c}
+          </label>`).join('')}
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="text-sm text-inkmuted">Motivo / fuente de la corrección</label>
+      <textarea id="fv-motivo" rows="2" placeholder="Ej: confirmado en la página del producto" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5"></textarea>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2">
+      <button onclick="guardarFicha('VALIDADO_HUMANO')" class="text-sm font-semibold py-2.5 rounded-lg bg-moss text-paper">Confirmar / Corregir</button>
+      <button onclick="posponerFicha()" class="text-sm font-semibold py-2.5 rounded-lg bg-paper border border-line text-ink">Posponer</button>
+    </div>
+    <button onclick="cerrarComoNoRequiere()" class="w-full text-sm text-inkmuted underline mt-2">No requiere acción</button>
+
+    <p id="fichaStatus" class="text-sm text-center mt-2"></p>
+  `;
+
+  document.getElementById('fichaOverlay').classList.remove('hidden');
+}
+
+function cerrarFicha() {
+  document.getElementById('fichaOverlay').classList.add('hidden');
+  fichaActual = null;
+}
+
+function escHtml(s) { return String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function escAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+
+async function guardarFicha(estadoFinal) {
+  const r = fichaActual;
+  const statusEl = document.getElementById('fichaStatus');
+
+  const checks = document.querySelectorAll('.fv-variant');
+  const targets = checks.length
+    ? [...checks].filter(cb => cb.checked).map(cb => cb.value)
+    : (r.variantIdsIncluidos && r.variantIdsIncluidos[0] ? [r.variantIdsIncluidos[0]] : []);
+
+  if (targets.length === 0) {
+    statusEl.innerText = 'No hay Variant_ID para asociar esta corrección — no se puede guardar.';
+    statusEl.className = 'text-sm text-center mt-2 text-clay';
+    return;
+  }
+
+  const sensoryIdsPorVariante = {}, pesosPorVariante = {};
+  checks.forEach(cb => {
+    if (cb.dataset.sensory) sensoryIdsPorVariante[cb.value] = cb.dataset.sensory;
+    if (cb.dataset.peso) pesosPorVariante[cb.value] = cb.dataset.peso;
+  });
+  if (!checks.length && r.variantIdsIncluidos && r.variantIdsIncluidos[0]) {
+    sensoryIdsPorVariante[r.variantIdsIncluidos[0]] = (r.sensoryIdsIncluidos && r.sensoryIdsIncluidos[0]) || '';
+  }
+
+  const noDisponibles = [...document.querySelectorAll('.fv-nodisp')].filter(cb => cb.checked).map(cb => cb.value);
+
+  const correcciones = {
+    cafe: val('fv-cafe'), origen: val('fv-origen'), proceso: val('fv-proceso'),
+    variedad: val('fv-variedad'), altura: val('fv-altura'), notas: val('fv-notas')
+  };
+  noDisponibles.forEach(campo => { delete correcciones[campo]; });
+
+  statusEl.innerText = 'Guardando…';
+  statusEl.className = 'text-sm text-center mt-2 text-inkmuted';
+
+  try {
+    const body = {
+      token: TOKEN, action: 'guardarMetadata',
+      reviewGroupId: r.reviewGroupId, selectedVariantIds: targets,
+      sensoryIdsPorVariante: sensoryIdsPorVariante, pesosPorVariante: pesosPorVariante,
+      tienda: r.tienda, cafeDetectado: r.cafeDetectado, url: r.url,
+      correcciones: correcciones, noDisponibles: noDisponibles,
+      motivoCorreccion: val('fv-motivo'), estadoFinal: estadoFinal
+    };
+    const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    statusEl.innerText = '✓ Guardado — sacando de la cola…';
+    statusEl.className = 'text-sm text-center mt-2 text-moss';
+    setTimeout(() => {
+      todosPendientes = todosPendientes.filter(x => x.reviewGroupId !== r.reviewGroupId);
+      cerrarFicha();
+      aplicarFiltros();
+    }, 800);
+  } catch (err) {
+    statusEl.innerText = 'No se pudo guardar: ' + err.message;
+    statusEl.className = 'text-sm text-center mt-2 text-clay';
+  }
+}
+
+async function posponerFicha() {
+  const r = fichaActual;
+  const statusEl = document.getElementById('fichaStatus');
+  statusEl.innerText = 'Posponiendo…';
+  statusEl.className = 'text-sm text-center mt-2 text-inkmuted';
+  try {
+    const body = { token: TOKEN, action: 'posponerMetadata', reviewGroupId: r.reviewGroupId, comentario: val('fv-motivo') };
+    const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    statusEl.innerText = '✓ Pospuesto';
+    statusEl.className = 'text-sm text-center mt-2 text-moss';
+    setTimeout(cerrarFicha, 700);
+  } catch (err) {
+    statusEl.innerText = 'No se pudo posponer: ' + err.message;
+    statusEl.className = 'text-sm text-center mt-2 text-clay';
+  }
+}
+
+function cerrarComoNoRequiere() {
+  guardarFicha('NO_REQUIERE_ACCION');
+}
+
+function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+
+cargar();
+</script>
+</body>
+</html>
