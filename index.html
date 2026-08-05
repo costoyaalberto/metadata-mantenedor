@@ -43,7 +43,7 @@
 
     <div class="flex items-baseline justify-between mb-3 px-0.5">
       <h1 class="font-display font-semibold text-lg tracking-tight">Centro de Certificación</h1>
-      <span class="font-mono text-sm text-inkmuted tracking-widest uppercase">Metadata</span>
+      <span class="font-mono text-sm text-inkmuted tracking-widest uppercase">Metadata · V3</span>
     </div>
 
     <div id="resumenBanner" class="rounded-lg px-3 py-2 mb-3 flex items-center gap-3 text-sm font-mono border border-line bg-surface text-inkmuted flex-wrap">
@@ -53,8 +53,22 @@
     <div class="bg-surface border border-line rounded-xl p-3 mb-3">
       <input id="buscador" type="text" placeholder="Buscar por café o tienda…" class="w-full text-base border border-line rounded-md px-3 py-2 bg-paper text-ink mb-2">
       <div class="grid grid-cols-2 gap-2">
-        <select id="filtroTienda" class="text-sm border border-line rounded-md px-2 py-2 bg-paper text-ink"><option value="">Todas las tiendas</option></select>
-        <select id="filtroCampo" class="text-sm border border-line rounded-md px-2 py-2 bg-paper text-ink"><option value="">Todos los campos faltantes</option></select>
+        <details id="tiendaPanel" class="relative">
+          <summary class="list-none cursor-pointer text-base px-3 py-2 rounded-lg border border-line flex items-center justify-between text-ink bg-paper">
+            <span id="tiendaLabel">Todas las tiendas</span><span class="text-inkmuted text-sm">▾</span>
+          </summary>
+          <div class="absolute z-30 mt-1 w-full bg-surface border border-line rounded-lg shadow-lg p-2 max-h-64 overflow-y-auto">
+            <div id="tiendaOpciones" class="flex flex-col gap-0.5"></div>
+          </div>
+        </details>
+        <details id="campoPanel" class="relative">
+          <summary class="list-none cursor-pointer text-base px-3 py-2 rounded-lg border border-line flex items-center justify-between text-ink bg-paper">
+            <span id="campoLabel">Todos los campos</span><span class="text-inkmuted text-sm">▾</span>
+          </summary>
+          <div class="absolute z-30 mt-1 w-full bg-surface border border-line rounded-lg shadow-lg p-2 max-h-64 overflow-y-auto">
+            <div id="campoOpciones" class="flex flex-col gap-0.5"></div>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -99,25 +113,45 @@ async function cargar() {
   }
 }
 
+let filtroTiendaElegida = '';
+let filtroCampoElegido = '';
+
 function initFiltros() {
   const tiendas = [...new Set(todosPendientes.map(r => r.tienda).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  const selTienda = document.getElementById('filtroTienda');
-  tiendas.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; selTienda.appendChild(o); });
+  renderOpcionesUnicas('tiendaOpciones', 'Todas las tiendas', tiendas, (valor) => {
+    filtroTiendaElegida = valor;
+    document.getElementById('tiendaLabel').innerText = valor || 'Todas las tiendas';
+    document.getElementById('tiendaPanel').removeAttribute('open');
+    aplicarFiltros();
+  });
 
   const campos = new Set();
   todosPendientes.forEach(r => String(r.camposFaltantes || '').split(',').map(s => s.trim()).filter(Boolean).forEach(c => campos.add(c)));
-  const selCampo = document.getElementById('filtroCampo');
-  [...campos].sort((a, b) => a.localeCompare(b, 'es')).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; selCampo.appendChild(o); });
+  renderOpcionesUnicas('campoOpciones', 'Todos los campos', [...campos].sort((a, b) => a.localeCompare(b, 'es')), (valor) => {
+    filtroCampoElegido = valor;
+    document.getElementById('campoLabel').innerText = valor || 'Todos los campos';
+    document.getElementById('campoPanel').removeAttribute('open');
+    aplicarFiltros();
+  });
 
   document.getElementById('buscador').addEventListener('input', aplicarFiltros);
-  selTienda.addEventListener('change', aplicarFiltros);
-  selCampo.addEventListener('change', aplicarFiltros);
+}
+
+function renderOpcionesUnicas(containerId, etiquetaTodas, valores, onElegir) {
+  const cont = document.getElementById(containerId);
+  const opciones = [''].concat(valores);
+  cont.innerHTML = opciones.map(v => `
+    <button type="button" class="opcion-filtro text-left text-base px-2 py-1.5 rounded text-ink hover:bg-paper" data-valor="${v ? v.replace(/"/g, '&quot;') : ''}">${v || etiquetaTodas}</button>
+  `).join('');
+  cont.querySelectorAll('.opcion-filtro').forEach(btn => {
+    btn.addEventListener('click', () => onElegir(btn.getAttribute('data-valor')));
+  });
 }
 
 function aplicarFiltros() {
   const q = document.getElementById('buscador').value.toLowerCase();
-  const tienda = document.getElementById('filtroTienda').value;
-  const campo = document.getElementById('filtroCampo').value;
+  const tienda = filtroTiendaElegida;
+  const campo = filtroCampoElegido;
 
   filtrados = todosPendientes.filter(r => {
     if (q && !((r.cafeDetectado || '').toLowerCase().includes(q) || (r.tienda || '').toLowerCase().includes(q))) return false;
@@ -340,6 +374,7 @@ async function guardarFicha(estadoFinal) {
 
   statusEl.innerText = 'Guardando…';
   statusEl.className = 'text-sm text-center mt-2 text-inkmuted';
+  document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = true);
 
   try {
     const body = {
@@ -364,6 +399,7 @@ async function guardarFicha(estadoFinal) {
   } catch (err) {
     statusEl.innerText = 'No se pudo guardar: ' + err.message;
     statusEl.className = 'text-sm text-center mt-2 text-clay';
+    document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = false);
   }
 }
 
@@ -372,6 +408,7 @@ async function posponerFicha() {
   const statusEl = document.getElementById('fichaStatus');
   statusEl.innerText = 'Posponiendo…';
   statusEl.className = 'text-sm text-center mt-2 text-inkmuted';
+  document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = true);
   try {
     const body = { token: TOKEN, action: 'posponerMetadata', reviewGroupId: r.reviewGroupId, comentario: val('fv-motivo') };
     const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
@@ -383,6 +420,7 @@ async function posponerFicha() {
   } catch (err) {
     statusEl.innerText = 'No se pudo posponer: ' + err.message;
     statusEl.className = 'text-sm text-center mt-2 text-clay';
+    document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = false);
   }
 }
 
