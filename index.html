@@ -390,6 +390,17 @@ async function guardarFicha(estadoFinal, excluir) {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
+    if (data.ok === false) {
+      if (data.code === 'REQUIERE_RECONCILIACION') {
+        mostrarReconciliacion(data);
+      } else {
+        statusEl.innerText = (data.message || 'No se pudo guardar') + '.';
+        statusEl.className = 'text-sm text-center mt-2 text-clay';
+        document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = false);
+      }
+      return;
+    }
+
     statusEl.innerText = '✓ Guardado — sacando de la cola…';
     statusEl.className = 'text-sm text-center mt-2 text-moss';
     setTimeout(() => {
@@ -435,6 +446,24 @@ function descartarProducto() {
     return;
   }
   guardarFicha('EXCLUIDO', true);
+}
+
+function mostrarReconciliacion(data) {
+  document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = false);
+  const statusEl = document.getElementById('fichaStatus');
+
+  const legacyHtml = (data.legacyCandidates || []).map(c => `
+    <p class="text-sm text-inkmuted">Fila ${c.row}: ${c.tienda || ''} · ${c.cafe || ''} ${c.url ? '· ' + c.url : ''} ${c.variantId ? '· Variant_ID: ' + c.variantId : ''}</p>
+  `).join('');
+
+  statusEl.innerHTML = `
+    <div class="text-left mt-1">
+      <p class="text-sm font-semibold text-ochre mb-1">⚠ Requiere reconciliación manual — no se guardó nada</p>
+      <p class="text-sm text-inkmuted mb-2">${data.message || ''}</p>
+      ${legacyHtml}
+      <p class="text-sm text-inkmuted mt-2">Tus datos del formulario siguen acá. Resolvé la ambigüedad en el Sheet (o avisale a Alberto) y volvé a intentar.</p>
+    </div>`;
+  statusEl.className = 'mt-2';
 }
 
 function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
