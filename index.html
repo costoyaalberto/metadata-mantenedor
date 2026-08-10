@@ -228,6 +228,7 @@ function abrirFicha(reviewGroupId) {
   fichaActual = r;
 
   const variantes = r.variantIdsIncluidos || [];
+  const sinIdentidad = variantes.length === 0;
   const sensoryIds = r.sensoryIdsIncluidos || [];
   const pesos = String(r.pesosPresentaciones || '').split(',').map(s => s.trim()).filter(Boolean);
   const necesitaSeleccion = variantes.length > 1;
@@ -288,6 +289,21 @@ function abrirFicha(reviewGroupId) {
         `}
       </div>` : ''}
 
+    ${sinIdentidad ? `
+      <div class="mb-3 p-3 bg-claybg border border-clay rounded-lg">
+        <p class="text-sm font-semibold text-clay mb-1">⚠ Sin Variant_ID asociado</p>
+        <p class="text-sm text-inkmuted">Este café todavía no tiene una identidad de variante resuelta por el motor — no se puede guardar ninguna corrección acá hasta que eso se resuelva del otro lado. Por ahora solo podés posponerlo con un comentario.</p>
+      </div>
+      <div class="mb-3">
+        <label class="text-sm text-inkmuted">Comentario</label>
+        <textarea id="fv-motivo" rows="2" class="w-full text-base border border-line rounded-md px-2.5 py-2 bg-paper text-ink mt-0.5"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="posponerFicha()" class="text-sm font-semibold py-2.5 rounded-lg bg-paper border border-line text-ink">Posponer</button>
+        <button onclick="borrarPendiente()" class="text-sm font-semibold py-2.5 rounded-lg bg-clay text-paper">Borrar (resetear)</button>
+      </div>
+      <p id="fichaStatus" class="text-sm text-center mt-2"></p>
+    ` : `
     <div class="grid grid-cols-2 gap-2 mb-2">
       <div>
         <label class="text-sm text-inkmuted">Café corregido</label>
@@ -338,6 +354,7 @@ function abrirFicha(reviewGroupId) {
     <button onclick="descartarProducto()" class="w-full text-sm text-clay underline mt-1.5">Descartar producto (no es un café válido)</button>
 
     <p id="fichaStatus" class="text-sm text-center mt-2"></p>
+    `}
   `;
 
   document.getElementById('fichaOverlay').classList.remove('hidden');
@@ -465,6 +482,35 @@ function descartarProducto() {
     return;
   }
   guardarFicha('EXCLUIDO', true);
+}
+
+async function borrarPendiente() {
+  const r = fichaActual;
+  if (!confirm('¿Borrar esta fila de la cola? El motor la va a volver a detectar sola en la próxima corrida, con la metodología actual. Esto no se puede deshacer desde acá.')) return;
+
+  const statusEl = document.getElementById('fichaStatus');
+  statusEl.innerText = 'Borrando…';
+  statusEl.className = 'text-sm text-center mt-2 text-inkmuted';
+  document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = true);
+
+  try {
+    const body = { token: TOKEN, action: 'eliminarPendiente', reviewGroupId: r.reviewGroupId };
+    const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    statusEl.innerText = '✓ Borrado';
+    statusEl.className = 'text-sm text-center mt-2 text-moss';
+    setTimeout(() => {
+      todosPendientes = todosPendientes.filter(x => x.reviewGroupId !== r.reviewGroupId);
+      cerrarFicha();
+      aplicarFiltros();
+    }, 600);
+  } catch (err) {
+    statusEl.innerText = 'No se pudo borrar: ' + err.message;
+    statusEl.className = 'text-sm text-center mt-2 text-clay';
+    document.querySelectorAll('#fichaContenido button').forEach(b => b.disabled = false);
+  }
 }
 
 function mostrarReconciliacion(data) {
