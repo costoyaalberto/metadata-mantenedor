@@ -35,7 +35,7 @@
 
   <!-- ====== CONFIGURACIÓN: pegar acá la URL /exec del deploy de ESTE mantenedor ====== -->
   <script>
-   const API_URL = 'https://script.google.com/macros/s/AKfycbyE7W2Z5YPdsO7x2BxFgQJBjn8JZyfB_L8kryA1Z_4KOmqvrVHOwjYJvueWoX1pIy6T/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbyE7W2Z5YPdsO7x2BxFgQJBjn8JZyfB_L8kryA1Z_4KOmqvrVHOwjYJvueWoX1pIy6T/exec';
     const TOKEN = 'Metadataupdate'; // el mismo que pegaste en Code.gs
   </script>
 
@@ -268,7 +268,7 @@ function abrirFicha(reviewGroupId) {
     </details>
 
     ${necesitaSeleccion ? `
-      <div class="mb-3 p-2.5 bg-paper border border-line rounded-lg">
+      <div id="bloqueVariantes" class="mb-3 p-2.5 bg-paper border border-line rounded-lg">
         ${premarcarTodo ? `
           <p class="text-sm font-medium text-ink mb-1">Este café tiene ${variantes.length} presentaciones vinculadas y certificadas (mismo Sensory_ID).</p>
           <p class="text-sm text-inkmuted mb-2">La corrección sensorial se va a aplicar a todas en una sola operación. Precio, stock, peso y URL de cada presentación no se modifican.</p>
@@ -341,6 +341,9 @@ function abrirFicha(reviewGroupId) {
   `;
 
   document.getElementById('fichaOverlay').classList.remove('hidden');
+  document.getElementById('fichaOverlay').scrollTop = 0;
+  const modalInterno = document.querySelector('#fichaOverlay > div');
+  if (modalInterno) modalInterno.scrollTop = 0;
 }
 
 function cerrarFicha() {
@@ -361,8 +364,14 @@ async function guardarFicha(estadoFinal, excluir) {
     : (r.variantIdsIncluidos && r.variantIdsIncluidos[0] ? [r.variantIdsIncluidos[0]] : []);
 
   if (targets.length === 0) {
-    statusEl.innerText = 'Marcá al menos una presentación en "¿A qué presentaciones aplica esta corrección?" (más arriba) antes de guardar.';
+    statusEl.innerText = 'Marcá al menos una presentación arriba antes de guardar.';
     statusEl.className = 'text-sm text-center mt-2 text-clay';
+    const bloque = document.getElementById('bloqueVariantes');
+    if (bloque) {
+      bloque.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      bloque.classList.add('border-clay');
+      setTimeout(() => bloque.classList.remove('border-clay'), 2000);
+    }
     return;
   }
 
